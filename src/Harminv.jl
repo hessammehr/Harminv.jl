@@ -1,9 +1,6 @@
 module Harminv
 
-const C = Sys.WORD_SIZE == 64 ? Complex128 : Complex64
-const F = Sys.WORD_SIZE == 64 ? Float64 : Float32
-
-struct HarminvData
+struct HarminvData{C, F} where C, F
     c :: Vector{C}
     n :: Int
     K :: Int
@@ -23,14 +20,29 @@ struct HarminvData
     errs :: Vector{F}
 end
 
-function HarminvData(J, z::AbstractArray{Complex64})
+function HarminvData(signal::Vector{C}, fmin, fmax, nf) where C
+    @assert nf > 1
+    @assert n > 0
+    @assert !isempty(signal)
+    @assert fmin < fmax
+
+    n = length(signal)
+    z = @. exp(-im * 2π * fmin + (fmin-fmax)/(nf-1) * (0:nf-1))
+
+    K = div(n,2) - 1
+    Harminv(signal, n, K, nf, -1, fmin, fmax, z, Matrix{C}(nf,nf), Array{C}(nf,nf), C[],
+            C[], C[], C[], C[], C[], C[], Float64[])
     
 end
 
-function generate_U(u :: AbstractArray{C}, u1 :: AbstractArray{C}, p :: Integer)
+function generate_U(u::AbstractArray{C}, u1::AbstractArray{C}, p, c::AbstractArray{C},
+                    n, K, J, J2, z::AbstractArray{C}, z2::AbstractArray{C},
+                    G = zeros(J), G_M = zeros(J), D = zeros(J)) where C
     M = h.K - 1
     @assert h.n >= 2*h.K + p
-    @assert 
+    z_inv = Array{C}(J)
+    z_m = Array{C}(J)
+    z_M = Array{C}(J)
 end
 
 function init_z(h :: HarminvData, J :: Integer, z::AbstractArray{Complex64})
