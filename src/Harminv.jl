@@ -7,35 +7,36 @@ const NPOW = 8
 const UNITY_THRESH = 1e-4
 const SINGULAR_THRESHOLD = 1e-5
 
-struct HarminvData{C, F} where C, F
-    c :: Vector{C}
-    n :: Int
-    K :: Int
-    J :: Int
-    nfreqs :: Int
-    fmin :: F
-    fmax :: F
-    z :: Vector{C}
-    U0 :: Vector{C}
-    U1 :: Vector{C}
-    G0 :: Vector{C}
-    G0_M :: Vector{C}
-    D0 :: Vector{C}
-    B :: Vector{C}
-    u :: Vector{C}
-    amps :: Vector{C}
-    errs :: Vector{F}
+struct HarminvData{C,F}
+    c::Vector{C}
+    n::Int
+    K::Int
+    J::Int
+    nfreqs::Int
+    fmin::F
+    fmax::F
+    z::Vector{C}
+    U0::Vector{C}
+    U1::Vector{C}
+    G0::Vector{C}
+    G0_M::Vector{C}
+    D0::Vector{C}
+    B::Vector{C}
+    u::Vector{C}
+    amps::Vector{C}
+    errs::Vector{F}
 end
 
-function HarminvData(signal::Vector{C}, fmin, fmax, nf) where C
+harmonics(fmin, fmax, nf) = @. exp(-im * 2π * fmin + (fmin-fmax)/(nf-1) * (0:nf-1))
+
+function HarminvData(signal::Vector{C}, fmin, fmax, nf, nfreqs = -1, z = harmonics(fmin,fmax,nf)) where C
+    J = nf
+    n = length(signal)
+
     @assert nf > 1
     @assert n > 0
     @assert !isempty(signal)
     @assert fmin < fmax
-
-    J = nf
-    n = length(signal)
-    z = @. exp(-im * 2π * fmin + (fmin-fmax)/(nf-1) * (0:nf-1))
 
     K = div(n,2) - 1
     U0 = Matrix{C}(undef, J, J)
@@ -43,16 +44,21 @@ function HarminvData(signal::Vector{C}, fmin, fmax, nf) where C
     amps = Vector{C}(undef, J)
     errs = Vector{Float64}(undef, J)
     G0, G0_M, D0 = generate_U(U0, U0, 0, signal, n, K, J, J, z, z, nothing, nothing, nothing)
-    Harminv(signal, n, K, nf, -1, fmin, fmax, z, Matrix{C}(undef, nf,nf), Array{C}(undef, nf,nf), C[],
-            C[], C[], C[], C[], C[], C[], Float64[])
+    Harminv(signal, n, K, nf, nfreqs, fmin, fmax, z, Matrix{C}(undef,nf,nf), Matrix{C}(undef,nf,nf), C[],
+            C[], C[], C[], Ref{Vector{C}}(), Ref{Vector{C}}(), C[], Float64[])
     
+end
+
+# for iterating on a previous solution, e.g. in solve_again
+function HarminvData(d::HarminvData)
+    newd = HarminvData(d.c, d.fmin, d.fmax, d.nfreqs, 0, d.u[][:])
 end
 
 function generate_U(U::AbstractMatrix{C}, U1, p, c::AbstractArray{C},
                     n, K, J, J2, z::AbstractArray{C}, z2::AbstractArray{C},
                     G0 , G0_M, D0) where C
-    M = h.K - 1
-    @assert h.n >= 2*h.K + p
+    M = K - 1
+    @assert n >= 2K + p
 
     if G0 != nothing
         G = G0[:]
@@ -173,42 +179,69 @@ function symmetric_normalize!(vect)
 end
 
 function solve_eigenvects(A0)
-    v0, mm = eigs(d.U0)
+    v0, mm = eigs(A0)
+    nvals = length(v0)
     # symmetric-normalized eigenvectors
-    V0 = [symmetric_normalize(V[:,i] for i=1:size(mm)[2]]
-    v0, V0
+    @inbounds for col = 1:nvals
+        symmetric_normalize!(@view mm[:,col])
+    end
+    v0, mm
 end
 
-function solve_once(d::HarminvData{C,F}) where {C,F}
+function solve_once!(d::HarminvData{C,F}) where {C,F}
     one = 1
     zone = one(C)
     zzero = zero(C)
-    max_v0 = 0.0
 
     J = d.J
     v0, V0 = solve_eigenvects(d.U0)
     max_v0 = maximum(v0)
+    c0 = zero(eltype(v0))
     threshold = SINGULAR_THRESHOLD * max_v0
     
-    d.nfreqs = J2
+    d.nfreqs = J
     for i = 1:J
         if abs(v0[i]) < threshold
-
+            v0[i] = c0
+            d.nfreqs -= 1
+        else
+            j = findfirst(v0, c0)
+            if j > 0 && j < i
+                V0[:, j] = V0[:, i]
+                v0[j] = v0[i]
+                v0[i] = c0
+            else
+                j = i
+            end
+            scale!(V0[:,j], 1/sqrt(v0[j]))
         end
     end
+    # the good eigenvectors of V0
+    V = @view V0[:,d.nfreqs]
+    d.B = V * d.U1
+    H1 =  d.U1 * V'
+    d.u[], V1 = solve_eigenvects(H1)
+    d.B[] = V1 * V0
 end
 
-function solve_again(d::HarminvData)
+function solve_again!(d::HarminvData, ok)
+    if d.nfreq == 0
+        solve_once!(d)
+    end
+
+    mode_ok = BitArray(d.nfreqs)
+    new_d = HarminvData(d)
+
 
 end
 
 # TODO: actually use ok
 function solve_ok_modes!(d::HarminvData, ok::Function, ok_d)
-    harminv_solve_once(d)
+    solve_once!(d)
     cur_nf = d.nfreqs
     while true
         prev_nf = cur_nf
-        solve_again(d, ok, ok_d)
+        solve_again!(d, ok, ok_d)
         cur_nf = d.nfreqs
         if cur_nf >= prev_nf
             break
@@ -219,7 +252,7 @@ end
 
 solve!(d::HarminvData) = solve_ok_modes!(d, nothing, nothing)
 
-frequency_errors!(d::HarminvData)
+# frequency_errors!(d::HarminvData) = 
 
 function u_near_unity(u, n) 
     nlgabsu = n * log(abs(u))
@@ -227,8 +260,8 @@ function u_near_unity(u, n)
 end
 
 function compute_amplitudes(d::HarminvData{C,F}) where {C,F}
-    a = Array{C}(undef, h.nfreqs)
-    u = Array{C}(undef, h.nfreqs)
+    a = Array{C}(undef, d.nfreqs)
+    u = Array{C}(undef, d.nfreqs)
     ku = 1
 
     for k = 1:h.nfreqs
