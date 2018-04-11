@@ -1,5 +1,7 @@
 module Harminv
 
+using Compat
+
 const SMALL = 1e-8
 const NPOW = 8
 const UNITY_THRESH = 1e-4
@@ -36,12 +38,12 @@ function HarminvData(signal::Vector{C}, fmin, fmax, nf) where C
     z = @. exp(-im * 2π * fmin + (fmin-fmax)/(nf-1) * (0:nf-1))
 
     K = div(n,2) - 1
-    U0 = Array{C}(J, J)
-    U1 = Array{C}(J, J)
-    amps = Array{C}(J)
-    errs = Array{Float64}(J)
+    U0 = Matrix{C}(undef, J, J)
+    U1 = Matrix{C}(undef, J, J)
+    amps = Vector{C}(undef, J)
+    errs = Vector{Float64}(undef, J)
     G0, G0_M, D0 = generate_U(U0, U0, 0, signal, n, K, J, J, z, z, nothing, nothing, nothing)
-    Harminv(signal, n, K, nf, -1, fmin, fmax, z, Matrix{C}(nf,nf), Array{C}(nf,nf), C[],
+    Harminv(signal, n, K, nf, -1, fmin, fmax, z, Matrix{C}(undef, nf,nf), Array{C}(undef, nf,nf), C[],
             C[], C[], C[], C[], C[], C[], Float64[])
     
 end
@@ -186,10 +188,13 @@ function solve_once(d::HarminvData{C,F}) where {C,F}
     J = d.J
     v0, V0 = solve_eigenvects(d.U0)
     max_v0 = maximum(v0)
+    threshold = SINGULAR_THRESHOLD * max_v0
     
     d.nfreqs = J2
     for i = 1:J
+        if abs(v0[i]) < threshold
 
+        end
     end
 end
 
@@ -222,8 +227,8 @@ function u_near_unity(u, n)
 end
 
 function compute_amplitudes(d::HarminvData{C,F}) where {C,F}
-    a = Array{C}(h.nfreqs)
-    u = Array{C}(h.nfreqs)
+    a = Array{C}(undef, h.nfreqs)
+    u = Array{C}(undef, h.nfreqs)
     ku = 1
 
     for k = 1:h.nfreqs
@@ -234,7 +239,7 @@ function compute_amplitudes(d::HarminvData{C,F}) where {C,F}
     end
 
     nu = ku - 1
-    Uu = Matrix{C}(d.J, nu)
+    Uu = Matrix{C}(undef, d.J, nu)
     generate_U(Uu, nothing, 0, d.c, d.n, d.K, d.J, nu, d.z, u)
 
     for k = 1:d.nfreqs
