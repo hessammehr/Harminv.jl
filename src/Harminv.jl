@@ -46,7 +46,6 @@ function HarminvData(signal::Vector{C}, fmin, fmax, nf, nfreqs = Ref(-1), z = ha
     G0, G0_M, D0 = generate_U(U0, U0, 0, signal, n, K, J, J, z, z, nothing, nothing, nothing)
     HarminvData(signal, n, K, nf, nfreqs, fmin, fmax, z, U0, U1,
                 G0, G0_M, D0, Ref{Matrix{C}}(), Ref{Vector{C}}(), C[], Float64[])
-    
 end
 
 # for iterating on a previous solution, e.g. in solve_again
@@ -160,7 +159,7 @@ function generate_U(U::AbstractMatrix{C}, U1, p, c::AbstractArray{C},
                 end
             end
         end
-        uif z === z2
+        if z === z2
             U .= Symmetric(U, :U)
             if U1 !== nothing
                 U1 .= Symmetric(U1, :U)
